@@ -1,7 +1,18 @@
+# █ █ ▀ █▄▀ ▄▀█ █▀█ ▀    ▄▀█ ▀█▀ ▄▀█ █▀▄▀█ ▄▀█
+# █▀█ █ █ █ █▀█ █▀▄ █ ▄  █▀█  █  █▀█ █ ▀ █ █▀█
+#
+#              © Copyright 2022
+#
+#          https://t.me/hikariatama
+#
+# 🔒 Licensed under the GNU GPLv3
+# 🌐 https://www.gnu.org/licenses/agpl-3.0.html
+
+# meta developer: @hikariatama
+
 from .. import loader, utils
 from telethon import events
 import logging
-import re
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +53,7 @@ class AntiRomaMod(loader.Module):
         chat_id = utils.get_chat_id(event)
         
         # Проверка на анимированные эмоджи
-        if chat_id in self.config["banned_chats_anim"] and getattr(event.media, "document", None):
+        if chat_id in self.config["banned_chats_anim"] and getattr(event, "media", None) and hasattr(event.media, "document"):
             if hasattr(event.media.document, "attributes"):
                 for attr in event.media.document.attributes:
                     if getattr(attr, "animated", False):
@@ -50,7 +61,7 @@ class AntiRomaMod(loader.Module):
                         return
         
         # Проверка на запрещенные эмоджипаки
-        if str(chat_id) in self.config["banned_packs"] and getattr(event.media, "document", None):
+        if str(chat_id) in self.config["banned_packs"] and getattr(event, "media", None) and hasattr(event.media, "document"):
             if hasattr(event.media.document, "attributes"):
                 for attr in event.media.document.attributes:
                     if hasattr(attr, "stickerset") and attr.stickerset:
@@ -59,7 +70,7 @@ class AntiRomaMod(loader.Module):
                             return
         
         # Проверка на запрещенные стикеры
-        if str(chat_id) in self.config["banned_stickers"] and getattr(event.media, "document", None):
+        if str(chat_id) in self.config["banned_stickers"] and getattr(event, "media", None) and hasattr(event.media, "document"):
             if event.media.document.id in self.config["banned_stickers"][str(chat_id)]:
                 await event.delete()
                 return
