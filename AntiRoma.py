@@ -11,8 +11,9 @@
 # meta developer: @hikariatama
 
 from .. import loader, utils
-from telethon import events
+from telethon import events, types
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class AntiRomaMod(loader.Module):
         "unbanned_stick": "✅ <b>Эмоджи {} разрешен в этом чате</b>",
         "all_unbanned": "✅ <b>Все ограничения на эмоджи сняты в этом чате</b>",
         "no_reply": "❌ <b>Ответьте на стикер</b>",
+        "debug": "🔄 <b>Обнаружено сообщение с типом: {}</b>",
     }
 
     def __init__(self):
@@ -37,6 +39,7 @@ class AntiRomaMod(loader.Module):
             "banned_chats_anim", [], "Список чатов с запретом на анимированные эмоджи",
             "banned_packs", {}, "Словарь запрещенных эмоджипаков по чатам",
             "banned_stickers", {}, "Словарь запрещенных эмоджи по чатам",
+            "debug_mode", False, "Режим отладки для диагностики проблем",
         )
 
     async def client_ready(self, client, db):
@@ -48,32 +51,67 @@ class AntiRomaMod(loader.Module):
             self.check_message,
             events.NewMessage()
         )
+        
+        # Дополнительный обработчик для специфических типов сообщений
+        client.add_event_handler(
+            self.check_message,
+            events.MessageEdited()
+        )
     
     async def check_message(self, event):
-        chat_id = utils.get_chat_id(event)
-        
-        # Проверка на анимированные эмоджи
-        if chat_id in self.config["banned_chats_anim"] and getattr(event, "media", None) and hasattr(event.media, "document"):
-            if hasattr(event.media.document, "attributes"):
-                for attr in event.media.document.attributes:
-                    if getattr(attr, "animated", False):
+        try:
+            chat_id = utils.get_chat_id(event)
+            
+            # Режим отладки
+            if self.config["debug_mode"]:
+                if hasattr(event, "message") and event.message:
+                    media_type = type(event.message.media).__name__ if event.message.media else "Нет медиа"
+                    await self.client.send_message(
+                        chat_id, 
+                        self.strings("debug").format(media_type)
+                    )
+            
+            # Проверка на анимированные эмоджи
+            if chat_id in self.config["banned_chats_anim"]:
+                # Проверка на CustomEmoji (новый тип для эмодзи)
+                if hasattr(event, "message") and event.message:
+                    # Проверка на наличие CustomEmoji в entities
+                    if event.message.entities:
+                        for entity in event.message.entities:
+                            if isinstance(entity, types.MessageEntityCustomEmoji):
+                                await event.delete()
+                                return
+                    
+                    # Проверка на медиа с документом
+                    if event.message.media:
+                        if hasattr(event.message.media, "document"):
+                            doc = event.message.media.document
+                            if hasattr(doc, "attributes"):
+                                for attr in doc.attributes:
+                                    if getattr(attr, "animated", False):
+                                        await event.delete()
+                                        return
+            
+            # Проверка на запрещенные эмоджипаки
+            if str(chat_id) in self.config["banned_packs"] and event.message and event.message.media:
+                if hasattr(event.message.media, "document"):
+                    doc = event.message.media.document
+                    if hasattr(doc, "attributes"):
+                        for attr in doc.attributes:
+                            if hasattr(attr, "stickerset") and attr.stickerset:
+                                if attr.stickerset.id in self.config["banned_packs"][str(chat_id)]:
+                                    await event.delete()
+                                    return
+            
+            # Проверка на запрещенные стикеры
+            if str(chat_id) in self.config["banned_stickers"] and event.message and event.message.media:
+                if hasattr(event.message.media, "document"):
+                    doc = event.message.media.document
+                    if doc.id in self.config["banned_stickers"][str(chat_id)]:
                         await event.delete()
                         return
-        
-        # Проверка на запрещенные эмоджипаки
-        if str(chat_id) in self.config["banned_packs"] and getattr(event, "media", None) and hasattr(event.media, "document"):
-            if hasattr(event.media.document, "attributes"):
-                for attr in event.media.document.attributes:
-                    if hasattr(attr, "stickerset") and attr.stickerset:
-                        if attr.stickerset.id in self.config["banned_packs"][str(chat_id)]:
-                            await event.delete()
-                            return
-        
-        # Проверка на запрещенные стикеры
-        if str(chat_id) in self.config["banned_stickers"] and getattr(event, "media", None) and hasattr(event.media, "document"):
-            if event.media.document.id in self.config["banned_stickers"][str(chat_id)]:
-                await event.delete()
-                return
+        except Exception as e:
+            logger.error(f"Ошибка при проверке сообщения: {e}")
     
     @loader.command(ru_doc="Запретить анимированные эмоджи в этом чате")
     async def bananim(self, message):
@@ -86,6 +124,13 @@ class AntiRomaMod(loader.Module):
         else:
             await utils.answer(message, self.strings("banned_anim"))
     
+    @loader.command(ru_doc="Включить/выключить режим отладки")
+    async def debugmode(self, message):
+        """Toggle debug mode for emoji detection"""
+        self.config["debug_mode"] = not self.config["debug_mode"]
+        status = "включен" if self.config["debug_mode"] else "выключен"
+        await utils.answer(message, f"✅ <b>Режим отладки {status}</b>")
+    
     @loader.command(ru_doc="Запретить весь эмоджипак в текущем чате")
     async def banpack(self, message):
         """Ban emoji pack in this chat"""
@@ -96,7 +141,7 @@ class AntiRomaMod(loader.Module):
             await utils.answer(message, self.strings("no_reply"))
             return
         
-        if hasattr(reply.media.document, "attributes"):
+        if hasattr(reply.media, "document"):
             for attr in reply.media.document.attributes:
                 if hasattr(attr, "stickerset") and attr.stickerset:
                     pack_id = attr.stickerset.id
@@ -177,7 +222,7 @@ class AntiRomaMod(loader.Module):
             await utils.answer(message, self.strings("no_reply"))
             return
         
-        if hasattr(reply.media.document, "attributes"):
+        if hasattr(reply.media, "document"):
             for attr in reply.media.document.attributes:
                 if hasattr(attr, "stickerset") and attr.stickerset:
                     pack_id = attr.stickerset.id
