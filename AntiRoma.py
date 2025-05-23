@@ -14,8 +14,27 @@ from .. import loader, utils
 from telethon import events, types
 import logging
 import re
+import emoji
 
 logger = logging.getLogger(__name__)
+
+# Регулярное выражение для поиска эмодзи в тексте
+EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+    "\U0001F300-\U0001F5FF"  # symbols & pictographs
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F680-\U0001F6FF"  # transport & map symbols
+    "\U0001F700-\U0001F77F"  # alchemical symbols
+    "\U0001F780-\U0001F7FF"  # Geometric Shapes
+    "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
+    "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+    "\U0001FA00-\U0001FA6F"  # Chess Symbols
+    "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+    "\U00002702-\U000027B0"  # Dingbats
+    "\U000024C2-\U0001F251"
+    "]+"
+)
 
 @loader.tds
 class AntiRomaMod(loader.Module):
@@ -32,6 +51,8 @@ class AntiRomaMod(loader.Module):
         "all_unbanned": "✅ <b>Все ограничения на эмоджи сняты в этом чате</b>",
         "no_reply": "❌ <b>Ответьте на стикер</b>",
         "debug": "🔄 <b>Обнаружено сообщение с типом: {}</b>",
+        "banned_regular": "✅ <b>Обычные эмоджи запрещены в этом чате</b>",
+        "unbanned_regular": "✅ <b>Обычные эмоджи разрешены в этом чате</b>",
     }
 
     def __init__(self):
@@ -40,6 +61,7 @@ class AntiRomaMod(loader.Module):
             "banned_packs", {}, "Словарь запрещенных эмоджипаков по чатам",
             "banned_stickers", {}, "Словарь запрещенных эмоджи по чатам",
             "debug_mode", False, "Режим отладки для диагностики проблем",
+            "banned_chats_regular", [], "Список чатов с запретом на обычные эмоджи",
         )
 
     async def client_ready(self, client, db):
@@ -70,6 +92,31 @@ class AntiRomaMod(loader.Module):
                         chat_id, 
                         self.strings("debug").format(media_type)
                     )
+            
+            # Проверка на обычные эмодзи в тексте
+            if chat_id in self.config["banned_chats_regular"] and hasattr(event, "message") and event.message:
+                if event.message.text:
+                    # Проверка на наличие эмодзи в тексте
+                    if EMOJI_PATTERN.search(event.message.text) or emoji.emoji_count(event.message.text) > 0:
+                        await event.delete()
+                        return
+                
+                # Проверка на обычные эмодзи-стикеры
+                if event.message.media:
+                    if isinstance(event.message.media, types.MessageMediaWebPage):
+                        # Проверка на эмодзи в предпросмотре веб-страницы
+                        if hasattr(event.message.media.webpage, "title"):
+                            if EMOJI_PATTERN.search(event.message.media.webpage.title) or emoji.emoji_count(event.message.media.webpage.title) > 0:
+                                await event.delete()
+                                return
+                    
+                    # Проверка на обычные стикеры (не анимированные)
+                    if hasattr(event.message.media, "document"):
+                        doc = event.message.media.document
+                        if hasattr(doc, "mime_type") and doc.mime_type == "image/webp":
+                            # Это обычный стикер
+                            await event.delete()
+                            return
             
             # Проверка на анимированные эмоджи
             if chat_id in self.config["banned_chats_anim"]:
@@ -123,6 +170,28 @@ class AntiRomaMod(loader.Module):
             await utils.answer(message, self.strings("banned_anim"))
         else:
             await utils.answer(message, self.strings("banned_anim"))
+    
+    @loader.command(ru_doc="Запретить обычные эмоджи в этом чате")
+    async def banemoji(self, message):
+        """Ban regular emojis in this chat"""
+        chat_id = utils.get_chat_id(message)
+        
+        if chat_id not in self.config["banned_chats_regular"]:
+            self.config["banned_chats_regular"].append(chat_id)
+            await utils.answer(message, self.strings("banned_regular"))
+        else:
+            await utils.answer(message, self.strings("banned_regular"))
+    
+    @loader.command(ru_doc="Разрешить обычные эмоджи в этом чате")
+    async def unbanemoji(self, message):
+        """Unban regular emojis in this chat"""
+        chat_id = utils.get_chat_id(message)
+        
+        if chat_id in self.config["banned_chats_regular"]:
+            self.config["banned_chats_regular"].remove(chat_id)
+            await utils.answer(message, self.strings("unbanned_regular"))
+        else:
+            await utils.answer(message, self.strings("unbanned_regular"))
     
     @loader.command(ru_doc="Включить/выключить режим отладки")
     async def debugmode(self, message):
@@ -191,6 +260,10 @@ class AntiRomaMod(loader.Module):
         # Удаляем из списка запрещенных анимированных эмоджи
         if chat_id in self.config["banned_chats_anim"]:
             self.config["banned_chats_anim"].remove(chat_id)
+        
+        # Удаляем из списка запрещенных обычных эмоджи
+        if chat_id in self.config["banned_chats_regular"]:
+            self.config["banned_chats_regular"].remove(chat_id)
         
         # Удаляем из словаря запрещенных паков
         if str(chat_id) in self.config["banned_packs"]:
