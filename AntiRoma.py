@@ -3,7 +3,7 @@ from telethon import events
 import logging
 import re
 
-logger = logging.getLogger(name)
+logger = logging.getLogger(__name__)
 
 @loader.tds
 class AntiRomaMod(loader.Module):
@@ -21,7 +21,7 @@ class AntiRomaMod(loader.Module):
         "no_reply": "❌ <b>Ответьте на стикер</b>",
     }
 
-    def init(self):
+    def __init__(self):
         self.config = loader.ModuleConfig(
             "banned_chats_anim", [], "Список чатов с запретом на анимированные эмоджи",
             "banned_packs", {}, "Словарь запрещенных эмоджипаков по чатам",
@@ -93,8 +93,8 @@ class AntiRomaMod(loader.Module):
                     
                     if str(chat_id) not in self.config["banned_packs"]:
                         self.config["banned_packs"][str(chat_id)] = []
-
-if pack_id not in self.config["banned_packs"][str(chat_id)]:
+                    
+                    if pack_id not in self.config["banned_packs"][str(chat_id)]:
                         self.config["banned_packs"][str(chat_id)].append(pack_id)
                     
                     await utils.answer(message, self.strings("banned_pack").format(pack_name))
@@ -186,7 +186,7 @@ if pack_id not in self.config["banned_packs"][str(chat_id)]:
     async def unbanstick(self, message):
         """Unban emoji in this chat"""
         chat_id = utils.get_chat_id(message)
-reply = await message.get_reply_message()
+        reply = await message.get_reply_message()
         
         if not reply or not reply.media:
             await utils.answer(message, self.strings("no_reply"))
