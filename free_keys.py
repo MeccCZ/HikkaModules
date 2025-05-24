@@ -20,6 +20,10 @@ class FreeKeysMod(loader.Module):
         "bot_not_found": "❌ Бот @ExodusLucky_bot не найден",
         "chat_not_found": "❌ Не удалось создать или найти чат KEYS FREE",
         "started": "🔄 Запущена автоматическая проверка призов...",
+        "cmd_doc_keyon": "Включить модуль",
+        "cmd_doc_keyoff": "Выключить модуль",
+        "cmd_doc_keystatus": "Проверить статус модуля",
+        "cmd_doc_trykey": "Запустить проверку призов",
     }
     
     async def client_ready(self, client, db):
@@ -28,7 +32,7 @@ class FreeKeysMod(loader.Module):
         self._db = db
         self._bot_id = None
         self._chat_id = None
-        self._is_enabled = self._db.get(self.strings["name"], "enabled", False)
+        self._is_enabled = False # По умолчанию модуль выключен
         self._handler_added = False
         
         # Попытаемся найти бота по юзернейму
@@ -40,12 +44,6 @@ class FreeKeysMod(loader.Module):
         
         # Проверяем существование или создаем новый чат
         await self._ensure_chat_exists()
-        
-        # Если модуль был включен до перезагрузки, включаем его снова
-        if self._is_enabled:
-            self._add_handler()
-            # Отправляем первую команду /try, если модуль был включен
-            await self._send_try()
             
     async def _ensure_chat_exists(self):
         """Проверяет существование чата или создает новый"""
